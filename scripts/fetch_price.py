@@ -4,21 +4,25 @@
 
 **還原價計算說明**:FinMind 的 TaiwanStockPriceAdj(還原股價)只限付費的 backer/sponsor
 會員使用,免費額度打不到(會回 400)。所以這版改成自己算還原價,用兩份免費資料:
-  - TaiwanStockDividendResult(除權除息結果表):每次除權息當天的除權息前/後收盤價,
-    兩者相除就是那次事件的調整比例。
+  - TaiwanStockDividendResult(除權除息結果表):每次除權息事件的 before_price(除權息前
+    收盤參考價)/ after_price(除權息後參考價),兩者相除就是調整比例。
+    **注意**:這兩個欄位對 ETF(像 0050)有時候會是 0 或缺值(FinMind 對 ETF 的欄位填寫
+    不像一般個股那麼完整),這種情況下改用備援算法:拿我們自己抓到的原始股價,找事件日前一個
+    交易日的實際收盤價,搭配這份資料集另外給的股利金額(stock_and_cache_dividend)自己反推
+    比例 = (前一日收盤 − 股利金額) ÷ 前一日收盤,一樣可以算出正確的調整比例,不會因為 FinMind
+    欄位缺值就漏掉這次事件。
   - TaiwanStockSplitPrice(股票分割價格表):0050 在 2025-06-18 做過一次 1 拆 4,
-    同一套比例邏輯處理。
+    同一套比例邏輯處理(分割這份欄位比較穩定,不用備援)。
 算法:事件依日期排序,從最新的一天往回算,每遇到一個事件,把「那天之前」的所有歷史價格
 乘上這次事件的調整比例,這跟還原股價的標準算法一致。
 
 **無成交日補值**:交易所對完全沒有成交的個股,開高低收會公告為 `--`,FinMind 原始轉成數值 0。
-如果直接拿 0 去乘調整比例,還原股價會出現一根砍到接近 0 的假跳空(K 線圖上看起來像暴跌,
-但其實那天根本沒交易)。這版會把這種「收盤價是 0」的日子,改成沿用前一個有效交易日的收盤價,
-原始價(0050_price.csv)、還原價(0050_price_adj.csv)都套用同一套補值,顯示才會正常。
+如果直接拿 0 去乘調整比例,還原股價會出現一根砍到接近 0 的假跳空。這版會把這種「收盤價是 0」
+的日子,改成沿用前一個有效交易日的收盤價。
 
 輸出三個檔案:
   data/0050_price.csv          原始收盤價(analyze.py 用,增量更新,已補無成交日)
-  data/0050_dividend_events.csv 抓到的除權息+分割事件,留底備查
+  data/0050_dividend_events.csv 抓到的除權息+分割事件(含用的是哪種算法),留底備查
   data/0050_price_adj.csv      自算還原股價(K 線圖用)
 
 任何一步失敗,都不會讓本地已經存好的資料消失,最多就是這次沒補到新資料。
@@ -120,30 +124,52 @@ def update_raw_price() -> pd.DataFrame:
 
 
 # ---------- 除權息 + 分割事件:免費資料集,每次整段重抓(資料量很小) ----------
-def fetch_adjustment_events() -> pd.DataFrame | None:
+def fetch_adjustment_events(raw: pd.DataFrame) -> pd.DataFrame | None:
+    """raw: 已經補過無成交日的原始股價,拿來在 FinMind 欄位缺值時當備援資料源。"""
+    raw_by_date = raw.set_index(pd.to_datetime(raw["Date"]))["Close"].astype(float)
     events = []
 
     try:
         div = _request("TaiwanStockDividendResult", START_DATE)
+        print(f"[調整事件] 除權息事件(FinMind 回傳){len(div)} 筆,逐筆檢查:")
         for row in div:
-            before, after = row.get("before_price"), row.get("after_price")
-            if before and after and before > 0:
-                events.append({"date": row["date"], "type": "除權息", "before_price": before,
-                                "after_price": after, "ratio": after / before})
-        print(f"[調整事件] 除權息事件 {len(div)} 筆")
+            date = row["date"]
+            before, after = row.get("before_price") or 0, row.get("after_price") or 0
+            dividend = row.get("stock_and_cache_dividend") or 0
+            ratio, method = None, None
+
+            if before > 0 and after > 0:
+                ratio, method = after / before, "FinMind before/after"
+            elif dividend > 0:
+                # 備援:用我們自己的原始股價,找事件日前一個交易日的實際收盤價來反推比例
+                prior = raw_by_date[raw_by_date.index < pd.to_datetime(date)]
+                if len(prior):
+                    prev_close = prior.iloc[-1]
+                    if prev_close > 0:
+                        ratio = (prev_close - dividend) / prev_close
+                        method = f"備援:前一日收盤{prev_close}−股利{dividend}"
+
+            if ratio is None:
+                print(f"  {date}: before={before} after={after} dividend={dividend} -> 無法算出比例,已跳過")
+                continue
+
+            print(f"  {date}: ratio={ratio:.5f}({method})")
+            events.append({"date": date, "type": "除權息", "ratio": ratio, "method": method})
     except Exception as e:
         print(f"[調整事件] 除權息資料抓取失敗({e}),這部分會被跳過(不影響既有本地資料)")
 
     try:
         split = _request("TaiwanStockSplitPrice", START_DATE)
+        split_n = 0
         for row in split:
             if row.get("stock_id") != STOCK_ID:
                 continue
             before, after = row.get("before_price"), row.get("after_price")
             if before and after and before > 0:
                 events.append({"date": row["date"], "type": f"分割({row.get('type', '')})",
-                                "before_price": before, "after_price": after, "ratio": after / before})
-        print(f"[調整事件] 分割事件(0050){sum(1 for e in events if '分割' in e['type'])} 筆")
+                                "ratio": after / before, "method": "FinMind before/after"})
+                split_n += 1
+        print(f"[調整事件] 分割事件(0050){split_n} 筆")
     except Exception as e:
         print(f"[調整事件] 分割資料抓取失敗({e}),這部分會被跳過(不影響既有本地資料)")
 
@@ -153,7 +179,7 @@ def fetch_adjustment_events() -> pd.DataFrame | None:
     df = pd.DataFrame(events).sort_values("date").reset_index(drop=True)
     DATA_DIR.mkdir(exist_ok=True)
     df.to_csv(OUTPUT_EVENTS, index=False, encoding="utf-8-sig")
-    print(f"[調整事件] 共 {len(df)} 筆 -> {OUTPUT_EVENTS}")
+    print(f"[調整事件] 共套用 {len(df)} 筆 -> {OUTPUT_EVENTS}")
     return df
 
 
@@ -195,5 +221,5 @@ def build_adjusted_price(raw: pd.DataFrame, events: pd.DataFrame | None):
 
 if __name__ == "__main__":
     raw_df = update_raw_price()
-    events_df = fetch_adjustment_events()
+    events_df = fetch_adjustment_events(raw_df)
     build_adjusted_price(raw_df, events_df)
