@@ -1,0 +1,38 @@
+name: Deploy to GitHub Pages
+
+# 每次 push 到 main 分支,就自動把 web 資料夾的內容發布成網站
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:   # 也可以在 GitHub 網頁上手動點一下重新部署
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取出 repo 內容
+        uses: actions/checkout@v4
+
+      - name: 設定 GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: 把 web 資料夾打包成網站素材
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+      - name: 發布
+        id: deployment
+        uses: actions/deploy-pages@v4
