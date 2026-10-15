@@ -658,14 +658,15 @@ function updateKlineReadout(d) {
     klineReadout.innerHTML = "將滑鼠移到圖表上查看當天開高低收 / 成交量";
     return;
   }
-  const chg = d.o ? ((d.c / d.o - 1) * 100) : 0;
+  // 當日漲跌幅 = 今天收盤 vs 前一交易日收盤(不是今天開盤 vs 今天收盤,那是盤中幅度,是不同的東西)
+  const chg = d.prevClose ? ((d.c / d.prevClose - 1) * 100) : null;
   klineReadout.innerHTML =
     `<span><b>${d.date}</b></span>` +
     `<span>開 <b>${d.o}</b></span>` +
     `<span>高 <b>${d.h}</b></span>` +
     `<span>低 <b>${d.l}</b></span>` +
     `<span>收 <b class="${cls(chg)}">${d.c}</b></span>` +
-    `<span class="${cls(chg)}">${fmtPct(chg)}</span>` +
+    `<span class="${cls(chg)}">${chg === null ? "—" : fmtPct(chg)}</span>` +
     `<span>量 <b>${d.lots.toLocaleString()}</b> 張</span>`;
 }
 
