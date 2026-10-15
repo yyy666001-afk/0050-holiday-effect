@@ -123,7 +123,11 @@ class CandleChart {
       if (this.onHover) {
         if (this.hoverIndex !== null) {
           const i = this.hoverIndex;
-          this.onHover({ date: this.dates[i], o: this.o[i], h: this.h[i], l: this.l[i], c: this.c[i], lots: Math.round(this.v[i] / 1000) });
+          this.onHover({
+            date: this.dates[i], o: this.o[i], h: this.h[i], l: this.l[i], c: this.c[i],
+            prevClose: i > 0 ? this.c[i - 1] : null,  // 前一交易日收盤價,給外部算「正確的當日漲跌幅」用
+            lots: Math.round(this.v[i] / 1000),
+          });
         } else {
           this.onHover(null);
         }
