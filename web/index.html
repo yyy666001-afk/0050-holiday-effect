@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>連假效應分析 — 元大台灣50</title>
+<script src="vendor/chart.umd.js"></script>
+<script src="candlestick.js"></script>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #14171f;
+    --panel-2: #1a1e28;
+    --text: #eceef2;
+    --muted: #868c99;
+    --line: #242936;
+    --up: #ef4452;
+    --down: #1fae6a;
+    --accent: #5b8def;
+    --accent-dim: #2c3b56;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  .topbar {
+    padding: 28px clamp(16px, 4vw, 48px) 20px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #11141c 0%, var(--bg) 100%);
+  }
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  h1 {
+    font-size: clamp(20px, 3vw, 28px);
+    margin: 0 0 6px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .meta-line {
+    color: var(--muted);
+    font-size: 13px;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .meta-line span { white-space: nowrap; }
+
+  .tabs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 14px clamp(16px, 4vw, 48px);
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    scrollbar-width: thin;
+  }
+  .tab-btn {
+    flex: 0 0 auto;
+    background: var(--panel);
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .15s ease;
+    white-space: nowrap;
+  }
+  .tab-btn .n { color: var(--muted); font-size: 11px; margin-left: 5px; }
+  .tab-btn:hover { border-color: var(--accent-dim); color: var(--text); }
+  .tab-btn.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .tab-btn.active .n { color: rgba(255,255,255,0.75); }
+
+  main { padding: 24px clamp(16px, 4vw, 48px) 80px; max-width: 1180px; margin: 0 auto; }
+  .section { display: none; }
+  .section.active { display: block; animation: fade .25s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  .section-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  .section-head h2 { font-size: 20px; margin: 0; }
+  .section-head .count { color: var(--muted); font-size: 13px; }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .stat-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .stat-card .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .stat-card .value { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+  .stat-card .sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px 18px 14px;
+    margin-bottom: 18px;
+  }
+  .card h3 { font-size: 14px; margin: 0 0 12px; color: var(--text); font-weight: 600; }
+  .card canvas { max-height: 280px; }
+
+  .window-switch {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .win-btn {
+    background: var(--panel-2);
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .win-btn.active { background: var(--accent-dim); color: var(--text); border-color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  tbody tr { cursor: pointer; transition: background .1s ease; position: relative; }
+  tbody tr:hover { background: var(--panel-2); }
+  tbody tr.highlight { background: var(--accent-dim); }
+  tbody tr td:first-child::after {
+    content: "查看 K 線 ›";
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    font-size: 11px; color: var(--accent); opacity: 0; transition: opacity .12s ease;
+  }
+  tbody tr:hover td:first-child::after { opacity: 0.85; }
+  .pos { color: var(--up); font-variant-numeric: tabular-nums; }
+  .neg { color: var(--down); font-variant-numeric: tabular-nums; }
+  .table-scroll { overflow-x: auto; }
+  .legend-note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .empty { color: var(--muted); font-size: 13px; padding: 30px; text-align: center; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: -4px; margin-bottom: 14px; }
+
+  /* ---------- K 線抽屜式全螢幕視圖 ---------- */
+  .kline-view {
+    position: fixed; inset: 0; z-index: 50;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    opacity: 0; transform: translateY(18px) scale(0.99);
+    pointer-events: none;
+    transition: opacity .22s ease, transform .22s ease;
+  }
+  .kline-view.open { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+  .kline-header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px clamp(16px, 4vw, 48px);
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #11141c 0%, var(--bg) 100%);
+  }
+  .back-btn {
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 14px; font-size: 13px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    transition: all .15s ease;
+  }
+  .back-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+  .kline-heading { flex: 1; min-width: 0; }
+  .kline-heading .title { font-size: 16px; font-weight: 700; }
+  .kline-heading .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .kline-heading .sub .pos { font-weight: 600; }
+  .kline-heading .sub .neg { font-weight: 600; }
+  .kline-body { flex: 1; min-height: 0; padding: 16px clamp(16px, 4vw, 48px) 20px; display: flex; flex-direction: column; gap: 10px; }
+  .kline-readout {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    font-size: 13px; font-variant-numeric: tabular-nums;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 14px; color: var(--muted); min-height: 36px; align-items: center;
+  }
+  .kline-readout b { color: var(--text); font-weight: 600; }
+  .kline-readout .pos { font-weight: 600; } .kline-readout .neg { font-weight: 600; }
+  #kline-wrap { flex: 1; min-height: 0; }
+  #kline-wrap canvas { max-height: none; width: 100%; height: 100%; }
+  .kline-foot { color: var(--muted); font-size: 12px; }
+
+  .kline-stats {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch;
+  }
+  .kline-stats .range-box {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 14px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px;
+  }
+  .kline-stats .range-box b { color: var(--text); font-size: 13px; }
+  .win-pill-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .win-pill {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 12px; font-size: 12px; min-width: 64px; text-align: center;
+    cursor: pointer; font-family: inherit; transition: border-color .12s ease, background .12s ease;
+  }
+  .win-pill:hover { border-color: var(--accent-dim); }
+  .win-pill.active { border-color: var(--accent); background: var(--accent-dim); }
+  .win-pill .wl { color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+  .win-pill .wv { font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .win-detail {
+    width: 100%;
+    background: var(--panel); border: 1px solid var(--accent-dim); border-radius: 8px;
+    padding: 10px 14px; font-size: 13px; color: var(--text);
+    display: none; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .win-detail.show { display: flex; }
+  .win-detail .arrow { color: var(--muted); }
+  .win-detail .price { color: var(--muted); font-size: 12px; }
+  .custom-day-box {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 10px;
+  }
+  .custom-day-box input {
+    width: 54px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px;
+    color: var(--text); font-size: 12px; padding: 4px 6px; text-align: center;
+  }
+  .custom-day-box button {
+    background: var(--accent-dim); border: 1px solid var(--accent); color: var(--text);
+    border-radius: 5px; font-size: 12px; padding: 4px 10px; cursor: pointer;
+  }
+  .custom-day-box button:hover { background: var(--accent); }
+  .kbd { background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="eyebrow">0050 元大台灣50 ETF</div>
+  <h1>台股連假效應分析</h1>
+  <div class="meta-line" id="meta">載入中 ...</div>
+</div>
+
+<div class="tabs" id="tabs"></div>
+
+<main id="sections"></main>
+
+<!-- K 線抽屜視圖:點任一筆連假明細才會打開 -->
+<div class="kline-view" id="kline-view">
+  <div class="kline-header">
+    <button class="back-btn" id="kline-back">← 返回</button>
+    <div class="kline-heading">
+      <div class="title" id="kline-title">—</div>
+      <div class="sub" id="kline-sub">—</div>
+    </div>
+  </div>
+  <div class="kline-body">
+    <div class="kline-readout" id="kline-readout">將滑鼠移到圖表上查看當天開高低收 / 成交量</div>
+    <div id="kline-wrap"></div>
+    <div class="kline-stats">
+      <div class="range-box" id="kline-range">—</div>
+      <div class="win-pill-row" id="kline-windows"></div>
+      <div class="custom-day-box">
+        <span>自訂天數</span>
+        <input type="number" id="custom-days" min="1" max="500" value="10" />
+        <button id="custom-days-btn">計算</button>
+      </div>
+      <div class="win-pill-row" id="kline-custom-result"></div>
+      <div class="win-detail" id="kline-win-detail"></div>
+    </div>
+    <div class="kline-foot">滾輪縮放、按住拖曳平移 · 按 <span class="kbd">Esc</span> 或「← 返回」回到節日明細 · <span id="kline-adj-note"></span></div>
+  </div>
+</div>
+
+<script>
+const fmtPct = (v) => (v === null || v === undefined || Number.isNaN(v)) ? "-" : (v > 0 ? "+" : "") + v.toFixed(2) + "%";
+const cls = (v) => (v === null || v === undefined || Number.isNaN(v)) ? "" : (v > 0 ? "pos" : (v < 0 ? "neg" : ""));
+const WINDOWS = [
+  { key: "gap", label: "連假期間", desc: "連假前最後交易日 → 連假後第一個交易日" },
+  { key: "pre_1d", label: "前1日" },
+  { key: "pre_3d", label: "前3日" },
+  { key: "pre_5d", label: "前5日" },
+  { key: "post_1d", label: "後1日" },
+  { key: "post_3d", label: "後3日" },
+  { key: "post_5d", label: "後5日" },
+];
+const statCol = (key) => key === "gap" ? "gap_return_pct" : `${key}_return_pct`;
+
+let charts = {};
+let candleChart = null;
+
+Promise.all([
+  fetch("data.json?t=" + Date.now(), { cache: "no-store" }).then(r => { if (!r.ok) throw new Error("data.json 讀取失敗 (" + r.status + ")"); return r.json(); }),
+  fetch("price.json?t=" + Date.now(), { cache: "no-store" }).then(r => { if (!r.ok) throw new Error("price.json 讀取失敗 (" + r.status + ")"); return r.json(); }),
+])
+  .then(([payload, price]) => {
+    window.__priceData = price;
+    const note = document.getElementById("kline-adj-note");
+    note.textContent = price.adjusted
+      ? "K 線已還原權息(除息缺口已補平)"
+      : "K 線目前是原始股價,尚未還原權息(重跑 fetch_price.py 取得還原價後會自動換上)";
+    renderAll(payload);
+  })
+  .catch(err => {
+    document.getElementById("meta").textContent =
+      "資料讀取失敗,或是用 file:// 直接打開本頁(瀏覽器會擋 fetch)。請在 web 資料夾下用「python -m http.server」啟動本機伺服器。錯誤訊息: " + err.message;
+  });
+
+function renderAll(payload) {
+  const { generated_at, holidays, detail_count } = payload;
+  document.getElementById("meta").innerHTML =
+    `<span>資料更新:${new Date(generated_at).toLocaleString("zh-TW")}</span>` +
+    `<span>${holidays.length} 個節日</span>` +
+    `<span>共 ${detail_count} 筆連假樣本</span>`;
+
+  const tabs = document.getElementById("tabs");
+  const sections = document.getElementById("sections");
+
+  holidays.forEach((h, i) => {
+    const btn = document.createElement("button");
+    btn.className = "tab-btn" + (i === 0 ? " active" : "");
+    btn.innerHTML = `${h.name}<span class="n">${h.sample_count}</span>`;
+    btn.onclick = () => switchTab(i);
+    tabs.appendChild(btn);
+
+    const section = document.createElement("section");
+    section.className = "section" + (i === 0 ? " active" : "");
+    section.id = `section-${i}`;
+    section.innerHTML = buildSectionHTML(h);
+    sections.appendChild(section);
+  });
+
+  holidays.forEach((h, i) => initSection(h, i));
+}
+
+function switchTab(i) {
+  document.querySelectorAll(".tab-btn").forEach((b, bi) => b.classList.toggle("active", bi === i));
+  document.querySelectorAll(".section").forEach((s, si) => s.classList.toggle("active", si === i));
+}
+
+function buildSectionHTML(h) {
+  const s = h.stats || {};
+  return `
+    <div class="section-head">
+      <h2>${h.name}</h2>
+      <span class="count">${h.sample_count} 個樣本年度</span>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="label">連假期間平均報酬</div>
+        <div class="value ${cls(s.gap_return_pct_mean)}">${fmtPct(s.gap_return_pct_mean)}</div>
+        <div class="sub">中位數 ${fmtPct(s.gap_return_pct_median)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">上漲機率</div>
+        <div class="value">${s.gap_return_pct_win_rate ?? "-"}%</div>
+        <div class="sub">${h.sample_count} 次連假中</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">連假前5日平均</div>
+        <div class="value ${cls(s.pre_5d_return_pct_mean)}">${fmtPct(s.pre_5d_return_pct_mean)}</div>
+        <div class="sub">上漲機率 ${s.pre_5d_return_pct_win_rate ?? "-"}%</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">連假後5日平均</div>
+        <div class="value ${cls(s.post_5d_return_pct_mean)}">${fmtPct(s.post_5d_return_pct_mean)}</div>
+        <div class="sub">上漲機率 ${s.post_5d_return_pct_win_rate ?? "-"}%</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>每年報酬率(點長條可對照下方表格)</h3>
+      <div class="window-switch" data-role="window-switch"></div>
+      <canvas data-role="chart"></canvas>
+      <div class="legend-note">紅色 = 上漲、綠色 = 下跌(台股慣例紅漲綠跌)</div>
+    </div>
+
+    <div class="card">
+      <h3>逐年明細</h3>
+      <div class="hint">點一列可以開啟 0050 當時的 K 線圖</div>
+      <div class="table-scroll">
+        <table data-role="table">
+          <thead>
+            <tr>
+              <th>年度</th><th>開始</th><th>結束</th>
+              <th>連假期間</th><th>前1日</th><th>前3日</th><th>前5日</th>
+              <th>後1日</th><th>後3日</th><th>後5日</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function initSection(h, i) {
+  const section = document.getElementById(`section-${i}`);
+  const years = [...h.years].sort((a, b) => a.year - b.year);
+
+  const switchEl = section.querySelector('[data-role="window-switch"]');
+  WINDOWS.forEach((w) => {
+    const b = document.createElement("button");
+    b.className = "win-btn" + (w.key === "gap" ? " active" : "");
+    b.textContent = w.label;
+    b.onclick = () => {
+      switchEl.querySelectorAll(".win-btn").forEach(x => x.classList.remove("active"));
+      b.classList.add("active");
+      updateChart(i, years, w.key);
+    };
+    switchEl.appendChild(b);
+  });
+
+  try {
+    renderChart(i, years, "gap");
+  } catch (err) {
+    section.querySelector('[data-role="chart"]').replaceWith(
+      Object.assign(document.createElement("div"), { className: "empty", textContent: "圖表載入失敗(" + err.message + "),表格資料仍正常。" })
+    );
+  }
+
+  const tbody = section.querySelector('[data-role="table"] tbody');
+  const sortedDesc = [...years].sort((a, b) => b.year - a.year);
+  tbody.innerHTML = sortedDesc.map(y => `
+    <tr data-year="${y.year}" data-start="${y.start_date}">
+      <td>${y.year}</td>
+      <td>${y.start_date}</td>
+      <td>${y.end_date}</td>
+      <td class="${cls(y.gap_return_pct)}">${fmtPct(y.gap_return_pct)}</td>
+      <td class="${cls(y.pre_1d_return_pct)}">${fmtPct(y.pre_1d_return_pct)}</td>
+      <td class="${cls(y.pre_3d_return_pct)}">${fmtPct(y.pre_3d_return_pct)}</td>
+      <td class="${cls(y.pre_5d_return_pct)}">${fmtPct(y.pre_5d_return_pct)}</td>
+      <td class="${cls(y.post_1d_return_pct)}">${fmtPct(y.post_1d_return_pct)}</td>
+      <td class="${cls(y.post_3d_return_pct)}">${fmtPct(y.post_3d_return_pct)}</td>
+      <td class="${cls(y.post_5d_return_pct)}">${fmtPct(y.post_5d_return_pct)}</td>
+    </tr>
+  `).join("");
+
+  tbody.querySelectorAll("tr").forEach(tr => {
+    tr.onclick = () => {
+      tbody.querySelectorAll("tr").forEach(x => x.classList.remove("highlight"));
+      tr.classList.add("highlight");
+      const year = parseInt(tr.dataset.year, 10);
+      const yearData = years.find(y => y.year === year);
+      openKlineView(h.name, yearData);
+    };
+  });
+}
+
+function renderChart(i, years, windowKey) {
+  const section = document.getElementById(`section-${i}`);
+  const canvas = section.querySelector('[data-role="chart"]');
+  const col = statCol(windowKey);
+  const data = years.map(y => y[col]);
+  charts[i] = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: years.map(y => y.year),
+      datasets: [{
+        label: "報酬率 (%)",
+        data,
+        backgroundColor: data.map(v => (v ?? 0) >= 0 ? "#ef4452" : "#1fae6a"),
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => ` ${fmtPct(c.raw)}` } },
+      },
+      scales: {
+        x: { ticks: { color: "#eceef2" }, grid: { display: false } },
+        y: { ticks: { color: "#868c99", callback: (v) => v + "%" }, grid: { color: "#242936" } },
+      },
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+        const idx = elements[0].index;
+        const year = years[idx].year;
+        const tbody = section.querySelector('[data-role="table"] tbody');
+        tbody.querySelectorAll("tr").forEach(x => x.classList.toggle("highlight", parseInt(x.dataset.year, 10) === year));
+        openKlineView(section.querySelector(".section-head h2").textContent, years[idx]);
+      }
+    }
+  });
+}
+
+function updateChart(i, years, windowKey) {
+  if (charts[i]) charts[i].destroy();
+  renderChart(i, years, windowKey);
+}
+
+// ---------- K 線抽屜視圖 ----------
+const klineView = document.getElementById("kline-view");
+const klineTitle = document.getElementById("kline-title");
+const klineSub = document.getElementById("kline-sub");
+const klineBack = document.getElementById("kline-back");
+
+function openKlineView(holidayName, yearData) {
+  klineTitle.textContent = `${holidayName} ${yearData.year} — 0050 走勢`;
+  klineSub.innerHTML =
+    `${yearData.start_date} ~ ${yearData.end_date}　` +
+    `連假期間報酬 <span class="${cls(yearData.gap_return_pct)}">${fmtPct(yearData.gap_return_pct)}</span>`;
+
+  klineView.classList.add("open");
+  document.body.style.overflow = "hidden";
+
+  requestAnimationFrame(() => {
+    if (!candleChart) {
+      candleChart = new CandleChart(document.getElementById("kline-wrap"), window.__priceData, {
+        onHover: updateKlineReadout,
+      });
+    } else {
+      candleChart.resize();
+    }
+    candleChart.jumpTo(yearData.start_date);
+  });
+
+  renderKlineStats(yearData);
+}
+
+// ---------- 統計資訊面板:沿用 analyze.py 算好的 1/3/5 日,30/60 日跟自訂天數在前端用 price.json 即時算 ----------
+function findPrevTradingIdx(dateStr) {
+  const dates = window.__priceData.dates;
+  let idx = -1;
+  for (let i = 0; i < dates.length; i++) {
+    if (dates[i] < dateStr) idx = i; else break;
+  }
+  return idx;
+}
+function findNextTradingIdx(dateStr) {
+  const dates = window.__priceData.dates;
+  for (let i = 0; i < dates.length; i++) {
+    if (dates[i] > dateStr) return i;
+  }
+  return -1;
+}
+// 回傳 {startIdx, endIdx} 或 null(資料範圍不夠時)
+function windowRange(prevIdx, nextIdx, kind, n) {
+  const len = window.__priceData.dates.length;
+  if (kind === "gap") {
+    if (prevIdx < 0 || nextIdx < 0) return null;
+    return { startIdx: prevIdx, endIdx: nextIdx };
+  }
+  if (kind === "pre") {
+    const si = prevIdx - n;
+    if (si < 0) return null;
+    return { startIdx: si, endIdx: prevIdx };
+  }
+  // post
+  const ei = nextIdx + n;
+  if (ei >= len) return null;
+  return { startIdx: nextIdx, endIdx: ei };
+}
+function windowDetail(prevIdx, nextIdx, kind, n) {
+  const range = windowRange(prevIdx, nextIdx, kind, n);
+  if (!range) return null;
+  const { dates, c } = window.__priceData;
+  const { startIdx, endIdx } = range;
+  const startClose = c[startIdx], endClose = c[endIdx];
+  return {
+    startDate: dates[startIdx], startClose,
+    endDate: dates[endIdx], endClose,
+    pct: (endClose / startClose - 1) * 100,
+  };
+}
+function pillLabel(kind, n) {
+  if (kind === "gap") return "連假期間";
+  return (kind === "pre" ? "前" : "後") + n + "日";
+}
+function pill(kind, n, detail) {
+  const label = pillLabel(kind, n);
+  const value = detail ? detail.pct : null;
+  return `<button type="button" class="win-pill" data-kind="${kind}" data-n="${n}">` +
+    `<div class="wl">${label}</div><div class="wv ${cls(value)}">${value === null ? "—" : fmtPct(value)}</div></button>`;
+}
+
+let currentYearData = null;
+let currentPrevIdx = null, currentNextIdx = null;
+
+function bindPillClicks(container) {
+  container.querySelectorAll(".win-pill").forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll(".win-pill").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const kind = btn.dataset.kind, n = parseInt(btn.dataset.n, 10);
+      const detail = windowDetail(currentPrevIdx, currentNextIdx, kind, n);
+      const box = document.getElementById("kline-win-detail");
+      if (!detail) {
+        box.innerHTML = `${pillLabel(kind, n)}:資料範圍不夠,算不出這個區間。`;
+      } else {
+        box.innerHTML =
+          `<b>${pillLabel(kind, n)}</b>` +
+          `<span>${detail.startDate} <span class="price">(收 ${detail.startClose})</span></span>` +
+          `<span class="arrow">→</span>` +
+          `<span>${detail.endDate} <span class="price">(收 ${detail.endClose})</span></span>` +
+          `<span class="${cls(detail.pct)}">${fmtPct(detail.pct)}</span>`;
+      }
+      box.classList.add("show");
+      if (candleChart) candleChart.jumpTo(detail ? detail.startDate : currentYearData.start_date);
+    };
+  });
+}
+
+function renderKlineStats(yearData) {
+  currentYearData = yearData;
+  const dates = window.__priceData.dates;
+  const prevIdx = findPrevTradingIdx(yearData.start_date);
+  const nextIdx = findNextTradingIdx(yearData.end_date);
+  currentPrevIdx = prevIdx;
+  currentNextIdx = nextIdx;
+
+  document.getElementById("kline-range").innerHTML =
+    prevIdx >= 0 && nextIdx >= 0
+      ? `連假前最後交易日 <b>${dates[prevIdx]}</b> → 連假後第一個交易日 <b>${dates[nextIdx]}</b>`
+      : `這筆連假落在股價資料範圍邊緣,部分天數可能算不出來`;
+
+  const specs = [
+    ["gap", null], ["pre", 1], ["pre", 3], ["pre", 5], ["pre", 30], ["pre", 60],
+    ["post", 1], ["post", 3], ["post", 5], ["post", 30], ["post", 60],
+  ];
+  const windowsHtml = specs.map(([kind, n]) => pill(kind, n, windowDetail(prevIdx, nextIdx, kind, n))).join("");
+  const windowsEl = document.getElementById("kline-windows");
+  windowsEl.innerHTML = windowsHtml;
+  bindPillClicks(windowsEl);
+
+  document.getElementById("kline-custom-result").innerHTML = "";
+  document.getElementById("kline-win-detail").classList.remove("show");
+}
+
+document.getElementById("custom-days-btn").onclick = () => {
+  if (!currentYearData) return;
+  const n = parseInt(document.getElementById("custom-days").value, 10);
+  if (!n || n < 1) return;
+  const resultEl = document.getElementById("kline-custom-result");
+  resultEl.innerHTML =
+    pill("pre", n, windowDetail(currentPrevIdx, currentNextIdx, "pre", n)) +
+    pill("post", n, windowDetail(currentPrevIdx, currentNextIdx, "post", n));
+  bindPillClicks(resultEl);
+};
+
+const klineReadout = document.getElementById("kline-readout");
+function updateKlineReadout(d) {
+  if (!d) {
+    klineReadout.innerHTML = "將滑鼠移到圖表上查看當天開高低收 / 成交量";
+    return;
+  }
+  const chg = d.o ? ((d.c / d.o - 1) * 100) : 0;
+  klineReadout.innerHTML =
+    `<span><b>${d.date}</b></span>` +
+    `<span>開 <b>${d.o}</b></span>` +
+    `<span>高 <b>${d.h}</b></span>` +
+    `<span>低 <b>${d.l}</b></span>` +
+    `<span>收 <b class="${cls(chg)}">${d.c}</b></span>` +
+    `<span class="${cls(chg)}">${fmtPct(chg)}</span>` +
+    `<span>量 <b>${d.lots.toLocaleString()}</b> 張</span>`;
+}
+
+function closeKlineView() {
+  klineView.classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+klineBack.onclick = closeKlineView;
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && klineView.classList.contains("open")) closeKlineView();
+});
+</script>
+</body>
+</html>
