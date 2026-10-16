@@ -128,7 +128,23 @@
     display: flex;
     gap: 6px;
     margin-bottom: 14px;
+    flex-wrap: wrap;
+    align-items: center;
   }
+  .chart-custom-box {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 3px 3px 3px 10px; font-size: 12px; color: var(--muted);
+  }
+  .chart-custom-box input {
+    width: 46px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+    color: var(--text); font-size: 12px; padding: 3px 5px; text-align: center;
+  }
+  .chart-custom-box button {
+    background: var(--accent-dim); border: 1px solid var(--accent); color: var(--text);
+    border-radius: 4px; font-size: 12px; padding: 4px 9px; cursor: pointer;
+  }
+  .chart-custom-box button:hover { background: var(--accent); }
   .win-btn {
     background: var(--panel-2);
     color: var(--muted);
@@ -288,7 +304,7 @@
 const fmtPct = (v) => (v === null || v === undefined || Number.isNaN(v)) ? "-" : (v > 0 ? "+" : "") + v.toFixed(2) + "%";
 const cls = (v) => (v === null || v === undefined || Number.isNaN(v)) ? "" : (v > 0 ? "pos" : (v < 0 ? "neg" : ""));
 const WINDOWS = [
-  { key: "gap", label: "連假期間", desc: "連假前最後交易日 → 連假後第一個交易日" },
+  { key: "gap", label: "連假前→後", desc: "連假前最後交易日 → 連假後第一個交易日" },
   { key: "pre_1d", label: "前1日" },
   { key: "pre_3d", label: "前3日" },
   { key: "pre_5d", label: "前5日" },
@@ -321,7 +337,7 @@ Promise.all([
 function renderAll(payload) {
   const { generated_at, holidays, detail_count } = payload;
   document.getElementById("meta").innerHTML =
-    `<span>資料更新:${new Date(generated_at).toLocaleString("zh-TW")}</span>` +
+    `<span>資料更新:${new Date(generated_at).toLocaleDateString("zh-TW")}</span>` +
     `<span>${holidays.length} 個節日</span>` +
     `<span>共 ${detail_count} 筆連假樣本</span>`;
 
@@ -383,7 +399,13 @@ function buildSectionHTML(h) {
 
     <div class="card">
       <h3>每年報酬率(點長條可對照下方表格)</h3>
-      <div class="window-switch" data-role="window-switch"></div>
+      <div class="window-switch" data-role="window-switch">
+        <div class="chart-custom-box">
+          <span>自訂天數</span>
+          <input type="number" data-role="chart-custom-input" min="1" max="500" value="10" />
+          <button type="button" data-role="chart-custom-btn">計算</button>
+        </div>
+      </div>
       <canvas data-role="chart"></canvas>
       <div class="legend-note">紅色 = 上漲、綠色 = 下跌(台股慣例紅漲綠跌)</div>
     </div>
@@ -396,7 +418,7 @@ function buildSectionHTML(h) {
           <thead>
             <tr>
               <th>年度</th><th>開始</th><th>結束</th>
-              <th>連假期間</th><th>前1日</th><th>前3日</th><th>前5日</th>
+              <th>連假前→後</th><th>前1日</th><th>前3日</th><th>前5日</th>
               <th>後1日</th><th>後3日</th><th>後5日</th>
             </tr>
           </thead>
@@ -432,6 +454,43 @@ function initSection(h, i) {
     );
   }
 
+  // 自訂天數:幫這個節日的「每一個樣本年度」都現算前N日/後N日報酬,動態加兩顆按鈕到切換列
+  const customInput = section.querySelector('[data-role="chart-custom-input"]');
+  const customBtn = section.querySelector('[data-role="chart-custom-btn"]');
+  customBtn.onclick = () => {
+    const n = parseInt(customInput.value, 10);
+    if (!n || n < 1 || !window.__priceData) return;
+
+    switchEl.querySelectorAll(".win-btn[data-custom]").forEach(b => b.remove());
+
+    const makeSeries = (dir) => years.map(y => {
+      const prevIdx = findPrevTradingIdx(y.start_date);
+      const nextIdx = findNextTradingIdx(y.end_date);
+      const d = windowDetail(prevIdx, nextIdx, dir, n);
+      return d ? d.pct : null;
+    });
+
+    const addBtn = (label, data) => {
+      const b = document.createElement("button");
+      b.className = "win-btn";
+      b.dataset.custom = "1";
+      b.textContent = label;
+      b.onclick = () => {
+        switchEl.querySelectorAll(".win-btn").forEach(x => x.classList.remove("active"));
+        b.classList.add("active");
+        updateChart(i, years, null, data);
+      };
+      switchEl.appendChild(b);
+      return b;
+    };
+
+    const preBtn = addBtn(`前${n}日`, makeSeries("pre"));
+    addBtn(`後${n}日`, makeSeries("post"));
+    switchEl.querySelectorAll(".win-btn").forEach(x => x.classList.remove("active"));
+    preBtn.classList.add("active");
+    preBtn.onclick();
+  };
+
   const tbody = section.querySelector('[data-role="table"] tbody');
   const sortedDesc = [...years].sort((a, b) => b.year - a.year);
   tbody.innerHTML = sortedDesc.map(y => `
@@ -460,11 +519,10 @@ function initSection(h, i) {
   });
 }
 
-function renderChart(i, years, windowKey) {
+function renderChart(i, years, windowKey, customData) {
   const section = document.getElementById(`section-${i}`);
   const canvas = section.querySelector('[data-role="chart"]');
-  const col = statCol(windowKey);
-  const data = years.map(y => y[col]);
+  const data = customData || years.map(y => y[statCol(windowKey)]);
   charts[i] = new Chart(canvas, {
     type: "bar",
     data: {
@@ -498,9 +556,9 @@ function renderChart(i, years, windowKey) {
   });
 }
 
-function updateChart(i, years, windowKey) {
+function updateChart(i, years, windowKey, customData) {
   if (charts[i]) charts[i].destroy();
-  renderChart(i, years, windowKey);
+  renderChart(i, years, windowKey, customData);
 }
 
 // ---------- K 線抽屜視圖 ----------
@@ -513,7 +571,7 @@ function openKlineView(holidayName, yearData) {
   klineTitle.textContent = `${holidayName} ${yearData.year} — 0050 走勢`;
   klineSub.innerHTML =
     `${yearData.start_date} ~ ${yearData.end_date}　` +
-    `連假期間報酬 <span class="${cls(yearData.gap_return_pct)}">${fmtPct(yearData.gap_return_pct)}</span>`;
+    `連假前→後報酬 <span class="${cls(yearData.gap_return_pct)}">${fmtPct(yearData.gap_return_pct)}</span>`;
 
   klineView.classList.add("open");
   document.body.style.overflow = "hidden";
@@ -578,7 +636,7 @@ function windowDetail(prevIdx, nextIdx, kind, n) {
   };
 }
 function pillLabel(kind, n) {
-  if (kind === "gap") return "連假期間";
+  if (kind === "gap") return "連假前→後";
   return (kind === "pre" ? "前" : "後") + n + "日";
 }
 function pill(kind, n, detail) {
